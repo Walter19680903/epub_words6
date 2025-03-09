@@ -6,9 +6,14 @@ import csv
 from io import StringIO
 
 app = Flask(__name__)
+
+# 設定 logging
 logging.basicConfig(level=logging.INFO)
 
+# 設定 books.json 的路徑，請確保該檔案存在且格式正確
 BOOKS_JSON_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'books.json')
+
+# 讀取 books.json 並轉換成平面字典 book_list
 try:
     with open(BOOKS_JSON_PATH, 'r', encoding='utf-8') as f:
         books_data = json.load(f)
@@ -24,11 +29,13 @@ for docx, inner in books_data.items():
         if isinstance(values, list) and len(values) >= 2:
             book_list[code] = values[1]
 
+# 產生下拉選單用的字串列表，格式: "(T0848) 大毘盧遮那成佛神變加持經"
 formatted_books = []
 for code, title in sorted(book_list.items()):
     formatted_books.append(f"({code}) {title}")
 app.logger.info(f"總共 {len(formatted_books)} 個選項")
 
+# CSV 下載路由
 @app.route("/download_csv")
 def download_csv():
     si = StringIO()
@@ -45,6 +52,7 @@ def download_csv():
         headers={"Content-Disposition": "attachment;filename=books.csv"}
     )
 
+# 依照代碼讀取 html 子目錄中對應檔案內容，不論大小寫
 @app.route("/get_result/<code>")
 def get_result(code):
     html_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "html")
@@ -59,6 +67,7 @@ def get_result(code):
     app.logger.error(f"找不到檔案 {target}")
     return f"<p>找不到結果檔案: {target}</p>"
 
+# HTML 模板：新增鍵盤導航功能
 template = '''
 <!DOCTYPE html>
 <html lang="zh">
@@ -78,27 +87,20 @@ template = '''
             margin-bottom: 20px;
         }
         .input-group label {
-            font-size: 27px;
+            font-size: 27px; /* 放大 1.5 倍 */
             margin-right: 10px;
         }
         .dropdown-container {
             position: relative;
             flex: 1;
-            display: flex;
-            align-items: center;
         }
         #searchInput {
             width: 100%;
-            font-size: 24px;
+            font-size: 24px; /* 放大 1.5 倍 */
             padding: 8px;
             box-sizing: border-box;
-        }
-        /* 新增下拉箭頭按鈕 */
-        #toggleDropdown {
-            cursor: pointer;
-            font-size: 24px;
-            padding: 8px;
-            user-select: none;
+            background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10'%3E%3Cpolygon points='0,0 10,0 5,5' fill='gray'/%3E%3C/svg%3E") no-repeat;
+            background-position: right 10px center;
         }
         #dropdown {
             position: absolute;
@@ -118,7 +120,7 @@ template = '''
             font-size: 24px;
         }
         #dropdown div:hover, #dropdown div.autocomplete-active {
-            background-color: lightyellow;
+            background-color: #f0f0f0;
         }
         .button-group {
             display: flex;
@@ -136,107 +138,46 @@ template = '''
     <script>
         var options = {{ options|tojson }};
         var currentFocus = -1;
-        var prevInput = "";  // 儲存上一次輸入框值
-        
-        document.addEventListener("DOMContentLoaded", function() {
-            var searchInput = document.getElementById("searchInput");
-            // 鍵盤導航處理
-            searchInput.addEventListener("keydown", function(e) {
-                var dropdown = document.getElementById("dropdown");
-                var items = dropdown.getElementsByTagName("div");
-                if (e.keyCode == 40) { // 下鍵
-                    currentFocus++;
-                    addActive(items);
-                    e.preventDefault();
-                } else if (e.keyCode == 38) { // 上鍵
-                    currentFocus--;
-                    addActive(items);
-                    e.preventDefault();
-                } else if (e.keyCode == 13) { // Enter
-                    e.preventDefault();
-                    if (currentFocus > -1 && items.length > 0) {
-                        items[currentFocus].click();
-                    }
-                } else if (e.keyCode == 27) { // ESC 鍵
-                    e.preventDefault();
-                    clearInput();
-                }
-            });
-            // 下拉箭頭按鈕點擊事件
-            document.getElementById("toggleDropdown").addEventListener("click", function() {
-                var dropdown = document.getElementById("dropdown");
-                if (dropdown.style.display === "block") {
-                    dropdown.style.display = "none";
-                } else {
-                    if (document.getElementById("searchInput").value.trim() === "") {
-                        populateDropdown(options);
-                    } else {
-                        filterOptions();
-                    }
-                }
-            });
-        });
-        
-        function populateDropdown(optionList) {
-            var dropdown = document.getElementById("dropdown");
-            dropdown.innerHTML = "";
-            var items = [];
-            optionList.forEach(function(option) {
-                var div = document.createElement("div");
-                div.textContent = option;
-                div.onclick = function() {
-                    document.getElementById("searchInput").value = option;
-                    dropdown.style.display = "none";
-                    var codeMatch = option.match(/\\((.*?)\\)/);
-                    if (codeMatch && codeMatch[1]) {
-                        fetchResult(codeMatch[1]);
-                    }
-                };
-                dropdown.appendChild(div);
-                items.push(div);
-            });
-            dropdown.style.display = "block";
-            if (items.length > 0) {
-                currentFocus = 0;
-                addActive(items, false);
-            }
-        }
-        
+
         function filterOptions() {
             var input = document.getElementById("searchInput");
-            var currentVal = input.value;
-            var filter = currentVal.toLowerCase();
+            var filter = input.value.toLowerCase();
             var dropdown = document.getElementById("dropdown");
-            // 只有當輸入框值改變時，才重置 currentFocus
-            if (currentVal !== prevInput) {
-                currentFocus = -1;
-                prevInput = currentVal;
-            }
             dropdown.innerHTML = "";
+            currentFocus = -1;
             if (filter.trim() === "") {
-                populateDropdown(options);
+                dropdown.style.display = "none";
                 return;
             }
             var matched = options.filter(function(option) {
                 return option.toLowerCase().indexOf(filter) > -1;
             });
             if (matched.length > 0) {
-                populateDropdown(matched);
+                matched.forEach(function(option) {
+                    var div = document.createElement("div");
+                    div.textContent = option;
+                    div.onclick = function() {
+                        document.getElementById("searchInput").value = option;
+                        dropdown.style.display = "none";
+                        var codeMatch = option.match(/\\((.*?)\\)/);
+                        if(codeMatch && codeMatch[1]) {
+                            fetchResult(codeMatch[1]);
+                        }
+                    };
+                    dropdown.appendChild(div);
+                });
+                dropdown.style.display = "block";
             } else {
                 dropdown.style.display = "none";
             }
         }
         
-        function addActive(x, updateInput = true) {
+        function addActive(x) {
             if (!x) return false;
             removeActive(x);
+            currentFocus++;
             if (currentFocus >= x.length) currentFocus = 0;
-            if (currentFocus < 0) currentFocus = x.length - 1;
             x[currentFocus].classList.add("autocomplete-active");
-            if (updateInput) {
-                document.getElementById("searchInput").value = x[currentFocus].textContent;
-            }
-            x[currentFocus].scrollIntoView({ block: "nearest" });
         }
         
         function removeActive(x) {
@@ -244,6 +185,27 @@ template = '''
                 x[i].classList.remove("autocomplete-active");
             }
         }
+        
+        document.getElementById("searchInput").addEventListener("keydown", function(e) {
+            var dropdown = document.getElementById("dropdown");
+            var items = dropdown.getElementsByTagName("div");
+            if (e.keyCode == 40) { // down
+                currentFocus++;
+                if (currentFocus >= items.length) currentFocus = 0;
+                addActive(items);
+                e.preventDefault();
+            } else if (e.keyCode == 38) { // up
+                currentFocus--;
+                if (currentFocus < 0) currentFocus = items.length - 1;
+                addActive(items);
+                e.preventDefault();
+            } else if (e.keyCode == 13) { // enter
+                e.preventDefault();
+                if (currentFocus > -1 && items) {
+                    items[currentFocus].click();
+                }
+            }
+        });
         
         function fetchResult(code) {
             fetch("/get_result/" + code.toLowerCase())
@@ -263,39 +225,7 @@ template = '''
         }
         
         function downloadCSV() {
-            var container = document.getElementById("resultContainer");
-            var table = container.querySelector("table");
-            if (!table) {
-                alert("找不到搜尋結果表格！");
-                return;
-            }
-            var csv = [];
-            var rows = table.querySelectorAll("tr");
-            for (var i = 0; i < rows.length; i++) {
-                var row = [], cols = rows[i].querySelectorAll("th, td");
-                for (var j = 0; j < cols.length; j++) {
-                    var text = cols[j].innerText;
-                    row.push('"' + text.replace(/"/g, '""') + '"');
-                }
-                csv.push(row.join(","));
-            }
-            var csv_string = csv.join("\\n");
-            var filename = "result.csv";
-            var blob = new Blob([csv_string], { type: "text/csv;charset=utf-8;" });
-            if (navigator.msSaveBlob) {
-                navigator.msSaveBlob(blob, filename);
-            } else {
-                var link = document.createElement("a");
-                if (link.download !== undefined) {
-                    var url = URL.createObjectURL(blob);
-                    link.setAttribute("href", url);
-                    link.setAttribute("download", filename);
-                    link.style.visibility = "hidden";
-                    document.body.appendChild(link);
-                    link.click();
-                    document.body.removeChild(link);
-                }
-            }
+            window.location.href = "/download_csv";
         }
         
         document.addEventListener("click", function(e) {
@@ -312,8 +242,7 @@ template = '''
     <div class="input-group" id="dropdownContainer">
         <label for="searchInput">輸入經名</label>
         <div class="dropdown-container">
-            <input type="text" id="searchInput" oninput="filterOptions()" placeholder="請輸入關鍵字...">
-            <span id="toggleDropdown">&#9660;</span>
+            <input type="text" id="searchInput" onkeyup="filterOptions()" placeholder="請輸入關鍵字...">
             <div id="dropdown"></div>
         </div>
     </div>
